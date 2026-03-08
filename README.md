@@ -26,6 +26,29 @@ uvicorn app.main:app --reload
 
 Then visit http://localhost:8000/docs for the interactive Swagger UI.
 
+## Node.js UX Demo (separate consumer app)
+
+A standalone frontend is available in `demo-ui/` and consumes this API through a small Node/Express proxy.
+
+### Run the demo
+
+```bash
+cd demo-ui
+cp .env.example .env
+npm install
+npm run start
+```
+
+Open http://localhost:3000.
+
+### Demo env vars
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `PORT` | Demo UI server port | `3000` |
+| `API_BASE_URL` | FastAPI backend URL | `http://localhost:8000` |
+| `API_KEY` | API key sent by Node proxy to backend | `Its@simple1` |
+
 ## Usage Examples
 
 ### Single garment (URL mode)

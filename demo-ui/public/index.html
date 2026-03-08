@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Kolors Try-On Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chivo:wght@400;700;900&family=Space+Mono:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+    <div class="grid-overlay"></div>
+
+    <main class="shell">
+      <header class="hero reveal">
+        <p class="tag">Node.js UX Demo</p>
+        <h1>Dress The Model In One Click</h1>
+        <p class="subtitle">
+          This frontend consumes your FastAPI service through a local Node proxy, so the API key stays
+          server-side.
+        </p>
+      </header>
+
+      <section class="panel reveal delay-1">
+        <div class="panel-head">
+          <h2>Try-On Inputs</h2>
+          <button id="sampleBtn" class="ghost-btn" type="button">Use Sample URLs</button>
+        </div>
+
+        <form id="tryonForm">
+          <label>
+            Person image URL
+            <input id="personUrl" name="person_image_url" type="url" required placeholder="https://.../person.jpg" />
+          </label>
+
+          <label>
+            Garment image URL
+            <input id="garmentUrl" name="garment_image_url" type="url" required placeholder="https://.../garment.jpg" />
+          </label>
+
+          <div class="form-row">
+            <label>
+              Seed
+              <input id="seed" name="seed" type="number" min="0" value="0" />
+            </label>
+            <label class="toggle-wrap">
+              <input id="randomize" name="randomize_seed" type="checkbox" checked />
+              <span>Randomize seed</span>
+            </label>
+          </div>
+
+          <button id="submitBtn" class="primary-btn" type="submit">Generate Try-On</button>
+        </form>
+      </section>
+
+      <section class="status-grid reveal delay-2">
+        <article class="panel status-card">
+          <h3>Service Health</h3>
+          <p id="healthText" class="mono">Checking...</p>
+        </article>
+        <article class="panel status-card">
+          <h3>Run Status</h3>
+          <p id="runText" class="mono">Idle</p>
+        </article>
+      </section>
+
+      <section class="results reveal delay-3">
+        <article class="panel image-panel">
+          <h3>Input Preview</h3>
+          <div class="image-grid">
+            <figure>
+              <img id="personPreview" alt="Person preview" />
+              <figcaption>Person</figcaption>
+            </figure>
+            <figure>
+              <img id="garmentPreview" alt="Garment preview" />
+              <figcaption>Garment</figcaption>
+            </figure>
+          </div>
+        </article>
+
+        <article class="panel image-panel">
+          <h3>Result</h3>
+          <img id="resultImage" alt="Try-on result" class="result-image" />
+          <div id="resultMeta" class="mono meta"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
