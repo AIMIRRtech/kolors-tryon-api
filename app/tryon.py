@@ -3,25 +3,17 @@ import base64
 import io
 import os
 import tempfile
-
 import httpx
+import json
 from PIL import Image
-from gradio_client import Client, handle_file
+from app.config import HF_TOKEN
 
-from app.config import HF_SPACE_URL, HF_TOKEN
-
-_client = None
-
-
-def get_client():
-    global _client
-    if _client is None:
-        _client = Client(HF_SPACE_URL, hf_token=HF_TOKEN)
-    return _client
+FAL_KEY = os.getenv("FAL_KEY", "")
+FAL_MODEL = "fal-ai/kling/v1-5/kolors-virtual-try-on"
 
 
 async def download_image(url: str) -> str:
-    """Download image from URL and save to temp file, return path."""
+    """Download image from URL and save to temp file, return path"""
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.get(url)
         resp.raise_for_status()
@@ -36,99 +28,106 @@ def image_to_base64(filepath: str) -> str:
         return base64.b64encode(f.read()).decode("utf-8")
 
 
+def image_url_to_data_uri(filepath: str) -> str:
+    b64 = image_to_base64(filepath)
+    return f"data:image/jpeg;base64,{b64}"
+
+
 async def run_tryon(
     person_image_url: str,
     garment_image_url: str,
     seed: int = 0,
     randomize_seed: bool = True,
 ) -> dict:
-    """Run virtual try-on via HuggingFace Space API."""
+    """Run virtual try-on using fal.ai Kling Kolors VTON endpoint"""
     person_path = await download_image(person_image_url)
     garment_path = await download_image(garment_image_url)
 
-    loop = asyncio.get_event_loop()
-    client = get_client()
-
     try:
-        result = await loop.run_in_executor(
-            None,
-            lambda: client.predict(
-                person_img=handle_file(person_path),
-                garment_img=handle_file(garment_path),
-                seed=seed,
-                randomize_seed=randomize_seed,
-                api_name="/tryon",
-            ),
-        )
+        # Use fal.ai API
+        async with httpx.AsyncClient(timeout=120) as client:
+            # Submit the request
+            submit_resp = await client.post(
+                f"https://queue.fal.run/{FAL_MODEL}",
+                headers={
+                    "Authorization": f"Key {FAL_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "human_image_url": person_image_url,
+                    "garment_image_url": garment_image_url,
+                },
+            )
+            submit_resp.raise_for_status()
+            submit_data = submit_resp.json()
+            request_id = submit_data.get("request_id")
+            status_url = submit_data.get("status_url")
+            response_url = submit_data.get("response_url")
 
-        result_image_path, seed_used, info = result
+            if not status_url or not response_url:
+                return {
+                    "success": False,
+                    "result_image_base64": None,
+                    "seed_used": seed,
+                    "message": f"Missing fal queue URLs in submit response: {submit_data}",
+                }
 
-        if result_image_path and info == "Success":
-            result_b64 = image_to_base64(result_image_path)
-            return {
-                "success": True,
-                "result_image_base64": result_b64,
-                "seed_used": seed_used,
-                "message": "Success",
-            }
-        else:
-            return {
-                "success": False,
-                "result_image_base64": None,
-                "seed_used": seed_used,
-                "message": info or "Try-on failed",
-            }
-    finally:
-        for p in [person_path, garment_path]:
-            try:
-                os.unlink(p)
-            except OSError:
-                pass
+            # Poll for result
+            for _ in range(60):
+                status_resp = await client.get(
+                    status_url,
+                    headers={"Authorization": f"Key {FAL_KEY}"},
+                )
+                status_data = status_resp.json()
+                if status_data.get("status") == "COMPLETED":
+                    break
+                elif status_data.get("status") == "FAILED":
+                    return {
+                        "success": False,
+                        "result_image_base64": None,
+                        "seed_used": seed,
+                        "message": f"Failed: {status_data}",
+                    }
+                await asyncio.sleep(2)
 
+            # Get result
+            result_resp = await client.get(
+                response_url,
+                headers={"Authorization": f"Key {FAL_KEY}"},
+            )
+            result_resp.raise_for_status()
+            result_data = result_resp.json()
 
-async def run_tryon_from_files(
-    person_path: str,
-    garment_path: str,
-    seed: int = 0,
-    randomize_seed: bool = True,
-) -> dict:
-    """Run virtual try-on from local file paths."""
-    loop = asyncio.get_event_loop()
-    client = get_client()
+            # Download result image
+            result_image_url = result_data.get("image", {}).get("url", "")
+            if result_image_url:
+                img_resp = await client.get(result_image_url)
+                result_b64 = base64.b64encode(img_resp.content).decode("utf-8")
+                return {
+                    "success": True,
+                    "result_image_base64": result_b64,
+                    "result_image_url": result_image_url,
+                    "seed_used": seed,
+                    "message": "Success",
+                }
+            else:
+                return {
+                    "success": False,
+                    "result_image_base64": None,
+                    "seed_used": seed,
+                    "message": f"No image URL in response: {result_data}",
+                }
 
-    try:
-        result = await loop.run_in_executor(
-            None,
-            lambda: client.predict(
-                person_img=handle_file(person_path),
-                garment_img=handle_file(garment_path),
-                seed=seed,
-                randomize_seed=randomize_seed,
-                api_name="/tryon",
-            ),
-        )
-
-        result_image_path, seed_used, info = result
-
-        if result_image_path and info == "Success":
-            result_b64 = image_to_base64(result_image_path)
-            return {
-                "success": True,
-                "result_image_base64": result_b64,
-                "seed_used": seed_used,
-                "message": "Success",
-            }
-        else:
-            return {
-                "success": False,
-                "result_image_base64": None,
-                "seed_used": seed_used,
-                "message": info or "Try-on failed",
-            }
     except Exception as e:
         return {
             "success": False,
             "result_image_base64": None,
-            "seed_used": None,
+            "seed_used": seed,
             "message": str(e),
         }
+    finally:
+        for p in [person_path, garment_path]:
+            try:
+                os.unlink(p)
+            except:
+                pass
