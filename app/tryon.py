@@ -12,12 +12,23 @@ FAL_KEY = os.getenv("FAL_KEY", "")
 FAL_MODEL = "fal-ai/kling/v1-5/kolors-virtual-try-on"
 
 
+def decode_data_uri(data_uri: str) -> bytes:
+    """Decode a data URI to raw bytes"""
+    # Format: data:image/jpeg;base64,/9j/4AAQ...
+    header, b64_data = data_uri.split(",", 1)
+    return base64.b64decode(b64_data)
+
+
 async def download_image(url: str) -> str:
-    """Download image from URL and save to temp file, return path"""
-    async with httpx.AsyncClient(timeout=30) as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-    img = Image.open(io.BytesIO(resp.content)).convert("RGB")
+    """Download image from URL (or decode data URI) and save to temp file, return path"""
+    if url.startswith("data:"):
+        img_bytes = decode_data_uri(url)
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    else:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+        img = Image.open(io.BytesIO(resp.content)).convert("RGB")
     tmp = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
     img.save(tmp.name, "JPEG", quality=95)
     return tmp.name
@@ -43,6 +54,14 @@ async def run_tryon(
     person_path = await download_image(person_image_url)
     garment_path = await download_image(garment_image_url)
 
+    # Convert to data URIs for fal.ai if they were uploaded files
+    person_data_uri = image_url_to_data_uri(person_path)
+    garment_data_uri = image_url_to_data_uri(garment_path)
+
+    # Use original URLs if they are real URLs, data URIs for uploaded files
+    fal_person_url = person_image_url if not person_image_url.startswith("data:") else person_data_uri
+    fal_garment_url = garment_image_url if not garment_image_url.startswith("data:") else garment_data_uri
+
     try:
         # Use fal.ai API
         async with httpx.AsyncClient(timeout=120) as client:
@@ -54,8 +73,8 @@ async def run_tryon(
                     "Content-Type": "application/json",
                 },
                 json={
-                    "human_image_url": person_image_url,
-                    "garment_image_url": garment_image_url,
+                    "human_image_url": fal_person_url,
+                    "garment_image_url": fal_garment_url,
                 },
             )
             submit_resp.raise_for_status()
@@ -117,7 +136,6 @@ async def run_tryon(
                     "seed_used": seed,
                     "message": f"No image URL in response: {result_data}",
                 }
-
     except Exception as e:
         return {
             "success": False,
